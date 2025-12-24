@@ -33,6 +33,10 @@ jobs:
 
       - name: Run WordPress Publisher
         env:
+          # WordPress投稿時もスプレッドシートを読み込むため、GCP情報を渡す必要があります
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          SHEET_URL: ${{ secrets.SHEET_URL }}
+          # WordPress接続情報
           WP_URL: ${{ secrets.WP_URL }}
           WP_USER: ${{ secrets.WP_USER }}
           WP_PASSWORD: ${{ secrets.WP_PASSWORD }}
