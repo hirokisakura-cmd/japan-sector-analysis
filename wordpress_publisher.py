@@ -1,207 +1,146 @@
 import os
 import json
-import pandas as pd
 import gspread
-from google.oauth2.service_account import Credentials
 import requests
 import base64
-from datetime import datetime
-
-# --- 設定 ---
-SHEET_NAME = "業種分析"
+from google.oauth2.service_account import Credentials
+import datetime
 
 def get_sheet_data():
-    """スプレッドシートからデータを取得してDataFrameにする"""
+    """Googleスプレッドシートからデータを取得する"""
     scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     
-    # 認証情報の読み込み
-    if 'GCP_SERVICE_ACCOUNT' in os.environ:
-        creds_json = json.loads(os.environ['GCP_SERVICE_ACCOUNT'])
-    elif os.path.exists('service_account.json'):
+    # --- 認証情報の読み込み (ここが重要) ---
+    creds_json = None
+    env_sa = os.environ.get('GCP_SERVICE_ACCOUNT')
+    
+    # 1. 環境変数(Secrets)から読み込み
+    if env_sa:
+        try:
+            creds_json = json.loads(env_sa)
+        except json.JSONDecodeError as e:
+            print(f"JSON Decode Error: {e}")
+    
+    # 2. ローカルファイルから読み込み (フォールバック)
+    if not creds_json and os.path.exists('service_account.json'):
         with open('service_account.json', 'r') as f:
             creds_json = json.load(f)
-    else:
-        raise Exception("GCP認証情報が見つかりません")
+
+    if not creds_json:
+        raise Exception("GCP認証情報が見つかりません。SecretsのGCP_SERVICE_ACCOUNTを確認してください。")
 
     creds = Credentials.from_service_account_info(creds_json, scopes=scope)
     gc = gspread.authorize(creds)
-    
+
+    # --- シートを開く ---
     sheet_url = os.environ.get('SHEET_URL')
     if not sheet_url:
-        # ローカルテスト用フォールバック
-        sheet_url = "https://docs.google.com/spreadsheets/d/11Pp6Y8Eh-xNGyp6npiVpteuExno5pLigEkkmlBq1iFE/edit"
+        raise Exception("SHEET_URLが設定されていません")
 
     wb = gc.open_by_url(sheet_url)
-    ws = wb.worksheet(SHEET_NAME)
+    worksheet = wb.worksheet("業種分析")
     
-    # 全データを取得してDataFrame化
-    data = ws.get_all_values()
-    df = pd.DataFrame(data[1:], columns=data[0])
-    
-    # 数値型に変換
-    numeric_cols = ["現在値", "前日比(%)", "短期(5日乖離)", "中期(25日乖離)", "長期(75日乖離)", "RSI", "BB%B(過熱)", "出来高倍率"]
-    for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-    return df
+    # 全データを取得 (辞書形式のリスト)
+    data = worksheet.get_all_records()
+    return data
 
-def generate_html_content(df):
-    """WordPressに投稿するHTMLとJavaScript(Chart.js)を生成する"""
-    
-    # 最新日付のデータのみ抽出
-    latest_date = df['日付'].iloc[0]
-    df_latest = df[df['日付'] == latest_date].copy()
-    
-    # 日付表示
-    html = f"<h3>📅 基準日: {latest_date} のセクター分析</h3>"
-    html += f"<p>最終更新: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>"
+def generate_html_table(data):
+    """取得したデータからHTMLテーブルを作成する"""
+    if not data:
+        return "<p>データがありません。</p>"
 
-    # --- 1. ヒートマップテーブルの生成 ---
-    html += "<h4>📊 セクター別ヒートマップ</h4>"
-    html += """
-    <style>
-        .sector-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
-        .sector-table th, .sector-table td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        .sector-table th { background-color: #f2f2f2; }
-        .heat-red { background-color: #ffcccc; color: #cc0000; font-weight: bold; }
-        .heat-blue { background-color: #e6f2ff; color: #0066cc; font-weight: bold; }
-        .heat-yellow { background-color: #fff9c4; font-weight: bold; }
-    </style>
-    <div style="overflow-x:auto;">
-    <table class="sector-table">
-        <thead>
-            <tr>
-                <th>セクター</th>
-                <th>現在値</th>
-                <th>前日比</th>
-                <th>短期(5日)</th>
-                <th>中期(25日)</th>
-                <th>RSI</th>
-                <th>過熱感(BB)</th>
-            </tr>
-        </thead>
-        <tbody>
-    """
-    
-    for _, row in df_latest.iterrows():
-        # 色付けロジック
-        rsi_style = 'class="heat-red"' if row['RSI'] >= 70 else ('class="heat-blue"' if row['RSI'] <= 30 else '')
-        bb_style = 'class="heat-red"' if row['BB%B(過熱)'] >= 1.0 else ('class="heat-blue"' if row['BB%B(過熱)'] <= 0 else '')
-        change_style = 'class="heat-red"' if row['前日比(%)'] > 0 else 'class="heat-blue"'
-        
-        # 前日比にプラス記号をつける
-        change_sign = "+" if row['前日比(%)'] > 0 else ""
-        
-        html += f"""
-            <tr>
-                <td style="text-align:left;">{row['セクター名']}</td>
-                <td>{row['現在値']:,}</td>
-                <td {change_style}>{change_sign}{row['前日比(%)']}%</td>
-                <td>{row['短期(5日乖離)']}%</td>
-                <td>{row['中期(25日乖離)']}%</td>
-                <td {rsi_style}>{row['RSI']}</td>
-                <td {bb_style}>{row['BB%B(過熱)']}</td>
-            </tr>
-        """
-    html += "</tbody></table></div>"
+    # 更新日時（最新の行から取得）
+    last_update = data[0].get("更新日時", datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))
 
-    # --- 2. Chart.js グラフの生成 ---
-    # データをJSON用に整形
-    labels = df_latest['セクター名'].tolist()
-    data_mid = df_latest['中期(25日乖離)'].tolist()
-    data_rsi = df_latest['RSI'].tolist()
-    
-    # 乖離率ランキング順にソートしてグラフ化するための処理
-    sorted_indices = sorted(range(len(data_mid)), key=lambda k: data_mid[k], reverse=True)
-    sorted_labels = [labels[i] for i in sorted_indices]
-    sorted_data_mid = [data_mid[i] for i in sorted_indices]
-    
-    # グラフ用Canvas
-    html += "<h4>📈 中期トレンド(25日乖離) ランキング</h4>"
-    html += '<canvas id="sectorChart" width="400" height="250"></canvas>'
-    
-    # Chart.jsのスクリプト埋め込み
-    # 注意: WordPressの自動整形(wpautop)対策のため、改行を極力減らす
-    script = f"""
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-    document.addEventListener("DOMContentLoaded", function() {{
-        var ctx = document.getElementById('sectorChart').getContext('2d');
-        var myChart = new Chart(ctx, {{
-            type: 'bar',
-            data: {{
-                labels: {json.dumps(sorted_labels, ensure_ascii=False)},
-                datasets: [{{
-                    label: '25日移動平均乖離率(%)',
-                    data: {json.dumps(sorted_data_mid)},
-                    backgroundColor: {json.dumps(['rgba(255, 99, 132, 0.7)' if x >= 0 else 'rgba(54, 162, 235, 0.7)' for x in sorted_data_mid])},
-                    borderColor: {json.dumps(['rgba(255, 99, 132, 1)' if x >= 0 else 'rgba(54, 162, 235, 1)' for x in sorted_data_mid])},
-                    borderWidth: 1
-                }}]
-            }},
-            options: {{
-                responsive: true,
-                indexAxis: 'y',
-                scales: {{
-                    x: {{ beginAtZero: true, grid: {{ color: '#eee' }} }}
-                }}
-            }}
-        }});
-    }});
-    </script>
-    """
-    html += script
-    
-    html += "<p><small>※ データソース: Yahoo! Finance / TOPIX-17シリーズETF</small></p>"
+    html = f"<p>最終更新: {last_update}</p>"
+    html += '<figure class="wp-block-table"><table>'
+    html += '<thead><tr>'
+    html += '<th>セクター</th><th>現在値</th><th>前日比</th><th>短期乖離</th><th>RSI</th><th>過熱感(BB)</th>'
+    html += '</tr></thead><tbody>'
+
+    for row in data:
+        # 必要なカラムを抽出
+        sector = row.get("セクター名", "")
+        price = row.get("現在値", 0)
+        change = row.get("前日比(%)", 0)
+        diff_short = row.get("短期(5日乖離)", 0)
+        rsi = row.get("RSI", 0)
+        bb = row.get("BB%B(過熱)", 0)
+
+        # 色付けのスタイル定義
+        style_change = 'style="color: red;"' if float(change) > 0 else 'style="color: blue;"'
+        
+        # 過熱感の判定 (1.0以上は赤太字、0以下は青太字)
+        bb_display = bb
+        if float(bb) > 1.0:
+            bb_display = f'<strong style="color: red;">{bb}</strong>'
+        elif float(bb) < 0:
+            bb_display = f'<strong style="color: blue;">{bb}</strong>'
+
+        html += '<tr>'
+        html += f'<td>{sector}</td>'
+        html += f'<td>{price}</td>'
+        html += f'<td {style_change}>{change}%</td>'
+        html += f'<td>{diff_short}%</td>'
+        html += f'<td>{rsi}</td>'
+        html += f'<td>{bb_display}</td>'
+        html += '</tr>'
+
+    html += '</tbody></table></figure>'
+    html += '<p><small>※TOPIX-17業種ETFのデータを元に算出</small></p>'
     
     return html
 
-def update_wordpress(html_content):
-    """WordPress REST APIを使って記事を更新する"""
-    wp_url = os.environ.get('WP_URL') # 例: https://example.com
-    wp_user = os.environ.get('WP_USER')
-    wp_password = os.environ.get('WP_PASSWORD') # Application Password
-    page_id = os.environ.get('WP_PAGE_ID') # 更新したい固定ページのID
+def update_wordpress(content):
+    """WordPressの固定ページを更新する"""
+    wp_url = os.environ.get("WP_URL")
+    wp_user = os.environ.get("WP_USER")
+    wp_pass = os.environ.get("WP_PASSWORD")
+    page_id = os.environ.get("WP_PAGE_ID")
 
-    if not all([wp_url, wp_user, wp_password, page_id]):
-        print("WordPress設定が足りません。環境変数を確認してください。")
+    if not all([wp_url, wp_user, wp_pass, page_id]):
+        print("WordPressの設定情報が不足しています。")
         return
 
-    api_url = f"{wp_url}/wp-json/wp/v2/pages/{page_id}"
+    # エンドポイントの構築 (末尾のスラッシュ処理など)
+    api_url = f"{wp_url.rstrip('/')}/wp-json/wp/v2/pages/{page_id}"
     
-    # 認証ヘッダー作成
-    credentials = f"{wp_user}:{wp_password}"
-    token = base64.b64encode(credentials.encode()).decode()
+    # 認証ヘッダー
+    credentials = f"{wp_user}:{wp_pass}"
+    token = base64.b64encode(credentials.encode())
     headers = {
-        'Authorization': f'Basic {token}',
+        'Authorization': f'Basic {token.decode("utf-8")}',
         'Content-Type': 'application/json'
     }
-    
-    # データ作成
-    post_data = {
-        'content': html_content,
-        # 'title': f'【自動更新】日本株セクター分析 ({datetime.now().strftime("%m/%d")})' # タイトルも変えたい場合
+
+    # 送信データ
+    payload = {
+        'content': content,
+        # 必要であればタイトルも更新可能
+        # 'title': f"セクター分析レポート ({datetime.datetime.now().strftime('%m/%d')})" 
     }
-    
-    # 送信
-    response = requests.post(api_url, headers=headers, json=post_data)
-    
+
+    print(f"WordPress ({api_url}) へ投稿中...")
+    response = requests.post(api_url, headers=headers, json=payload)
+
     if response.status_code == 200:
-        print("✅ WordPressの更新に成功しました！")
+        print("投稿成功！")
     else:
-        print(f"❌ WordPress更新エラー: {response.status_code}")
+        print(f"投稿失敗: {response.status_code}")
         print(response.text)
 
 if __name__ == "__main__":
     try:
         print("データを取得中...")
-        df = get_sheet_data()
+        data = get_sheet_data()
         
-        print("HTML生成中...")
-        html = generate_html_content(df)
+        print("HTMLを生成中...")
+        # 簡易的に上位5件だけ表示するなら data[:5] 等にする
+        html_content = generate_html_table(data)
         
-        print("WordPress更新中...")
-        update_wordpress(html)
+        update_wordpress(html_content)
         
     except Exception as e:
         print(f"エラーが発生しました: {e}")
+        # GitHub Actionsでエラーを通知するためにexit code 1を返す
+        exit(1)
