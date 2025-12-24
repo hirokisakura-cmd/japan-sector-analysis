@@ -239,7 +239,7 @@ def generate_html_content(latest_df, chart_labels, chart_datasets, overheated_to
             <strong>【チャートの仕様】</strong><br>
             <ul style="margin: 5px 0 0 20px; padding: 0;">
                 <li>直近300営業日前の終値を「100」として指数化したパフォーマンス推移です。</li>
-                <li>グラフ上の凡例の四角(■)をタップすると、その業種の表示/非表示を切り替えられます。</li>
+                <li>グラフ上の凡例の四角(●)をタップすると、その業種の表示/非表示を切り替えられます。</li>
                 <li>チャート上の点をタップすると、詳細な日付と指数値が表示されます。</li>
             </ul>
         </div>
