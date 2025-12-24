@@ -34,3 +34,72 @@ WordPress REST APIを経由して、以下のコンテンツを含むリッチ�
 ├── wordpress_publisher.py         # レポートHTML生成・WordPress API投稿
 ├── requirements.txt               # 依存ライブラリ一覧 (yfinance, pandas, requests 等)
 └── README.md
+
+ご指定のテキストをMarkdown形式に整形し、コピー＆ペースト可能なコードブロックに入れました。
+
+```markdown
+## 必要要件
+
+* Python 3.x
+* WordPress サイト (REST API有効化済み)
+* WordPress アプリケーションパスワード
+
+### 依存ライブラリ (requirements.txt)
+* yfinance
+* pandas
+* requests
+* jinja2
+
+## セットアップ手順
+
+1. **リポジトリをクローン**
+   ```bash
+   git clone [https://github.com/username/repository.git](https://github.com/username/repository.git)
+
+```
+
+2. **GitHub Secretsの設定**
+リポジトリの `Settings` > `Secrets and variables` > `Actions` に以下を設定してください。
+* `WP_URL`: WordPressサイトのURL (例: https://example.com)
+* `WP_USER`: 投稿用ユーザー名
+* `WP_APP_PASSWORD`: アプリケーションパスワード
+* `TARGET_PAGE_ID`: 更新する固定ページのID
+
+
+3. **動作確認**
+```bash
+pip install -r requirements.txt
+python sector_analysis.py
+python wordpress_publisher.py
+
+```
+
+
+
+## 分析対象 (TOPIX-17業種)
+
+* 1617: 食品
+* 1618: エネルギー資源
+* 1619: 建設・資材
+* 1620: 素材・化学
+* 1621: 医薬品
+* 1622: 自動車・輸送機
+* 1623: 鉄鋼・非鉄
+* 1624: 機械
+* 1625: 電機・精密
+* 1626: 情報通信・サービスその他
+* 1627: 電力・ガス
+* 1628: 運輸・物流
+* 1629: 商社・卸売
+* 1630: 小売
+* 1631: 金融（除く銀行）
+* 1632: 銀行
+* 1633: 不動産
+
+## ライセンス
+
+[MIT License](https://www.google.com/search?q=LICENSE)
+
+```
+
+```
