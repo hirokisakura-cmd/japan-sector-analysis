@@ -27,7 +27,8 @@ def get_sheet_data():
             creds_json = json.load(f)
 
     if not creds_json:
-        raise Exception("GCP認証情報が見つかりません。SecretsのGCP_SERVICE_ACCOUNTを確認してください。")
+        # エラーメッセージを修正: YAML設定漏れの可能性を示唆
+        raise Exception("GCP認証情報が見つかりません。GitHub Actionsのワークフロー(YAML)ファイルで、このステップに環境変数 'GCP_SERVICE_ACCOUNT' が正しく渡されているか確認してください。")
 
     creds = Credentials.from_service_account_info(creds_json, scopes=scope)
     gc = gspread.authorize(creds)
