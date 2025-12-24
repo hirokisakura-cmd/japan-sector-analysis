@@ -82,7 +82,3 @@ python wordpress_publisher.py
 * 1631: 金融（除く銀行）
 * 1632: 銀行
 * 1633: 不動産
-
-## ライセンス
-
-[MIT License](https://www.google.com/search?q=LICENSE)
