@@ -3,7 +3,6 @@ name: Sector Trend Analysis
 on:
   schedule:
     # 毎日 UTC 06:40 (JST 15:40) に1回だけ実行
-    # 市場終了後に当日の確定終値を取得します
     - cron: '40 6 * * *'
   workflow_dispatch:
 
@@ -33,12 +32,9 @@ jobs:
 
       - name: Run WordPress Publisher
         env:
-          # WordPress投稿時もスプレッドシートを読み込むため、GCP情報を渡す必要があります
+          # GCP情報
           GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
           SHEET_URL: ${{ secrets.SHEET_URL }}
-          # WordPress接続情報
-          WP_URL: ${{ secrets.WP_URL }}
-          WP_USER: ${{ secrets.WP_USER }}
-          WP_PASSWORD: ${{ secrets.WP_PASSWORD }}
-          WP_PAGE_ID: ${{ secrets.WP_PAGE_ID }}
+          # WordPress情報 (まとめたSecretsを渡す)
+          TOFU_WORDPRESS: ${{ secrets.TOFU_WORDPRESS }}
         run: python wordpress_publisher.py
