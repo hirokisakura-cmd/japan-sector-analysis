@@ -131,7 +131,7 @@ def generate_html_content(latest_df, chart_labels, chart_datasets, overheated_to
 
     # --- CSS (インライン) ---
     style_grid = "display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;"
-    style_card = "padding: 12px; border-radius: 6px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #eee;"
+    # style_cardの定義はループ内で動的に行うため削除
 
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto;">
@@ -148,13 +148,17 @@ def generate_html_content(latest_df, chart_labels, chart_datasets, overheated_to
         rsi = float(row['RSI'])
         bb = float(row['BB%B(過熱)'])
         
-        # --- ステータス判定 (変更箇所) ---
+        # --- ステータスとパネル色の判定 (変更箇所) ---
         
-        # デフォルト（通常）: 元のままに近い控えめな表示
+        # デフォルト設定
         status_text = "通常"
         status_style = "color: #aaa; font-size: 0.7rem; background: #f7f7f7; padding: 2px 6px; border-radius: 4px; display: inline-block;"
         
-        # 過熱判定: 文字サイズ大(1.1rem)、太字(900)、赤背景、白文字、影付き
+        # パネル自体の背景色と枠線
+        card_bg = "#fff"
+        card_border = "1px solid #eee"
+
+        # 過熱判定: パネル全体を赤系にする
         if rsi >= 70 or bb > 1.0:
             status_text = "過熱"
             status_style = (
@@ -163,8 +167,11 @@ def generate_html_content(latest_df, chart_labels, chart_datasets, overheated_to
                 "box-shadow: 0 3px 6px rgba(211, 47, 47, 0.4); "
                 "display: inline-block; transform: scale(1.05);"
             )
+            # 背景を薄い赤、枠線を太い赤に変更
+            card_bg = "#ffebee" 
+            card_border = "2px solid #ef5350"
             
-        # 割安判定: 文字サイズ大(1.1rem)、太字(900)、青背景、白文字、影付き
+        # 割安判定: パネル全体を青系にする
         elif rsi <= 30 or bb < 0:
             status_text = "割安"
             status_style = (
@@ -173,13 +180,19 @@ def generate_html_content(latest_df, chart_labels, chart_datasets, overheated_to
                 "box-shadow: 0 3px 6px rgba(25, 118, 210, 0.4); "
                 "display: inline-block; transform: scale(1.05);"
             )
+            # 背景を薄い青、枠線を太い青に変更
+            card_bg = "#e3f2fd"
+            card_border = "2px solid #42a5f5"
 
         change_color = "#d32f2f" if change > 0 else ("#1976d2" if change < 0 else "#333")
         sign = "+" if change > 0 else ""
         
-        # パネルHTML (変更箇所: align-itemsをcenterにして配置調整)
+        # パネルのスタイルを動的に生成
+        current_card_style = f"padding: 12px; border-radius: 6px; background: {card_bg}; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: {card_border};"
+        
+        # パネルHTML
         html += f"""
-        <div style="{style_card}">
+        <div style="{current_card_style}">
             <div style="font-weight: bold; font-size: 0.95rem; color: #333; margin-bottom: 8px;">{sector}</div>
             
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -194,7 +207,7 @@ def generate_html_content(latest_df, chart_labels, chart_datasets, overheated_to
                 </div>
             </div>
             
-            <div style="font-size: 0.75rem; color: #666; border-top: 1px solid #f9f9f9; padding-top: 6px; display: flex; justify-content: space-between;">
+            <div style="font-size: 0.75rem; color: #666; border-top: 1px solid rgba(0,0,0,0.05); padding-top: 6px; display: flex; justify-content: space-between;">
                 <span>RSI(14): <strong>{rsi:.1f}</strong></span>
                 <span>BB: <strong>{bb:.2f}</strong></span>
             </div>
