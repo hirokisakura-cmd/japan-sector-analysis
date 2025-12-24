@@ -29,60 +29,100 @@ SECTOR_ETFS = {
     "1633": "不動産"
 }
 
-def get_sector_data(code, name):
+def calculate_technical_indicators(df):
+    """データフレーム全体に対してテクニカル指標を一括計算する"""
+    df = df.copy()
+    
+    # 1. 移動平均乖離率
+    df['ma5'] = df['Close'].rolling(window=5).mean()
+    df['ma25'] = df['Close'].rolling(window=25).mean()
+    df['ma75'] = df['Close'].rolling(window=75).mean()
+    
+    df['diff_short'] = ((df['Close'] - df['ma5']) / df['ma5']) * 100
+    df['diff_mid'] = ((df['Close'] - df['ma25']) / df['ma25']) * 100
+    df['diff_long'] = ((df['Close'] - df['ma75']) / df['ma75']) * 100
+
+    # 2. RSI (14日)
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['rsi'] = 100 - (100 / (1 + rs))
+
+    # 3. ボリンジャーバンド %B (20日, 2σ)
+    # %B > 1.0 はバンド突破（過熱）、 < 0 はバンド割れ（売られすぎ）
+    df['bb_ma'] = df['Close'].rolling(window=20).mean()
+    df['bb_std'] = df['Close'].rolling(window=20).std()
+    df['bb_up'] = df['bb_ma'] + (df['bb_std'] * 2)
+    df['bb_low'] = df['bb_ma'] - (df['bb_std'] * 2)
+    # ゼロ除算回避
+    bb_range = df['bb_up'] - df['bb_low']
+    df['bb_pct_b'] = np.where(bb_range == 0, 0, (df['Close'] - df['bb_low']) / bb_range)
+
+    # 4. 出来高倍率 (直近5日平均との比較)
+    df['vol_ma5'] = df['Volume'].rolling(window=5).mean()
+    # ゼロ除算回避
+    df['vol_ratio'] = np.where(df['vol_ma5'] == 0, 0, df['Volume'] / df['vol_ma5'])
+
+    # 5. 前日比
+    df['change_pct'] = df['Close'].pct_change() * 100
+
+    return df
+
+def get_sector_data(code, name, is_initial_run=False):
     """
-    1つのETFのデータを取得し、トレンド指標を計算する
+    指定銘柄のデータを取得・計算
+    is_initial_run=Trueなら過去データ全て、Falseなら最新1行のみ返す
     """
     ticker = f"{code}.T"
     try:
-        # 過去1年分のデータを取得
         stock = yf.Ticker(ticker)
-        hist = stock.history(period="1y")
+        # 過去2年分取得（移動平均の計算用バッファ含む）
+        hist = stock.history(period="2y")
         
         if hist.empty:
-            return None
+            return []
 
-        # 最新の終値
-        current_price = hist['Close'].iloc[-1]
+        # 指標計算
+        df = calculate_technical_indicators(hist)
         
-        # --- テクニカル指標の計算 ---
-        
-        # 1. 移動平均乖離率 (移動平均からどれくらい離れているか%)
-        # 短期(5日), 中期(25日), 長期(75日)
-        ma5 = hist['Close'].rolling(window=5).mean().iloc[-1]
-        ma25 = hist['Close'].rolling(window=25).mean().iloc[-1]
-        ma75 = hist['Close'].rolling(window=75).mean().iloc[-1]
-        
-        diff_short = ((current_price - ma5) / ma5) * 100
-        diff_mid = ((current_price - ma25) / ma25) * 100
-        diff_long = ((current_price - ma75) / ma75) * 100
+        # NaNを除去し、直近1年(250営業日)分に絞る
+        df = df.dropna().tail(250) 
 
-        # 2. RSI (14日) - 買われすぎ/売られすぎ (0-100)
-        delta = hist['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs.iloc[-1]))
+        # 行データ作成用ヘルパー関数
+        def make_row(date_idx, row):
+            return [
+                code,                                            # A列: コード
+                name,                                            # B列: セクター名
+                date_idx.strftime('%Y-%m-%d'),                   # C列: 日付
+                round(row['Close'], 1),                          # D列: 現在値
+                round(row['change_pct'], 2),                     # E列: 前日比(%)
+                round(row['diff_short'], 2),                     # F列: 短期乖離
+                round(row['diff_mid'], 2),                       # G列: 中期乖離
+                round(row['diff_long'], 2),                      # H列: 長期乖離
+                round(row['rsi'], 1),                            # I列: RSI
+                round(row['bb_pct_b'], 2),                       # J列: BB %B (過熱感)
+                round(row['vol_ratio'], 2),                      # K列: 出来高倍率
+                datetime.datetime.now().strftime('%Y-%m-%d %H:%M') # L列: 更新日時
+            ]
 
-        # 3. 前日比
-        prev_close = hist['Close'].iloc[-2]
-        change_pct = ((current_price - prev_close) / prev_close) * 100
-
-        return [
-            code,           # A列: コード
-            name,           # B列: セクター名
-            round(current_price, 1), # C列: 現在値
-            round(change_pct, 2),    # D列: 前日比(%)
-            round(diff_short, 2),    # E列: 短期トレンド(5日線乖離%)
-            round(diff_mid, 2),      # F列: 中期トレンド(25日線乖離%)
-            round(diff_long, 2),     # G列: 長期トレンド(75日線乖離%)
-            round(rsi, 1),           # H列: RSI(過熱感)
-            datetime.datetime.now().strftime('%Y-%m-%d %H:%M') # I列: 更新日時
-        ]
+        results = []
+        if is_initial_run:
+            # 過去すべての行をリスト化 (日付の新しい順)
+            for date_idx, row in df.iloc[::-1].iterrows():
+                results.append(make_row(date_idx, row))
+        else:
+            # 最新の1行のみ
+            if len(df) > 0:
+                last_date = df.index[-1]
+                last_row = df.iloc[-1]
+                results.append(make_row(last_date, last_row))
+            
+        return results
 
     except Exception as e:
         print(f"Error {code}: {e}")
-        return None
+        return []
 
 def update_sheet():
     # --- Google Sheets認証 ---
@@ -104,7 +144,6 @@ def update_sheet():
     gc = gspread.authorize(creds)
 
     # --- スプレッドシート取得 ---
-    # GitHub公開用にハードコードされたURLを削除し、環境変数必須に変更
     sheet_url = os.environ.get('SHEET_URL')
     
     if not sheet_url:
@@ -113,41 +152,59 @@ def update_sheet():
 
     try:
         wb = gc.open_by_url(sheet_url)
-        # 「業種分析」シートを指定
+        # シート名指定（変更なし）
         worksheet = wb.worksheet("業種分析")
     except Exception as e:
         print(f"シートエラー: {e}")
         return
 
+    print("スプレッドシートの状態を確認中...")
+    
+    # 初回チェック (A1セルが空なら初回とみなす)
+    try:
+        val_a1 = worksheet.acell('A1').value
+        is_initial_run = not bool(val_a1)
+    except:
+        # シートが真っ白などの場合
+        is_initial_run = True
+
+    print(f"処理モード: {'初回一括作成(過去データ含む)' if is_initial_run else '通常更新(最新データ追記)'}")
     print("セクターデータの取得を開始します...")
 
     # --- データ取得 (並列処理) ---
-    results = []
+    all_rows = []
     with ThreadPoolExecutor(max_workers=5) as executor:
-        # 辞書のアイテムをリスト化して渡す
-        futures = [executor.submit(get_sector_data, code, name) for code, name in SECTOR_ETFS.items()]
+        futures = [executor.submit(get_sector_data, code, name, is_initial_run) for code, name in SECTOR_ETFS.items()]
         for future in futures:
             res = future.result()
             if res:
-                results.append(res)
+                all_rows.extend(res)
 
-    # 表示順序をコード順にソート
-    results.sort(key=lambda x: x[0])
+    # ソート: 日付(新しい順) > コード順
+    # x[2]は日付文字列, x[0]はコード
+    all_rows.sort(key=lambda x: (x[2], x[0]), reverse=True)
 
-    # --- 書き込み ---
+    # --- ヘッダー定義 ---
     headers = [
-        "コード", "セクター名", "現在値", "前日比(%)", 
-        "短期(5日乖離)", "中期(25日乖離)", "長期(75日乖離)", "RSI(過熱感)", "更新日時"
+        "コード", "セクター名", "日付", "現在値", "前日比(%)", 
+        "短期(5日乖離)", "中期(25日乖離)", "長期(75日乖離)", 
+        "RSI", "BB%B(過熱)", "出来高倍率", "更新日時"
     ]
     
-    # データ準備
-    all_values = [headers] + results
-    
-    # クリアしてから書き込み
-    worksheet.clear()
-    worksheet.update(range_name='A1', values=all_values)
-    
-    print("書き込み完了！")
+    # --- 書き込み ---
+    if is_initial_run:
+        print(f"{len(all_rows)}件のデータを書き込みます...")
+        worksheet.clear()
+        worksheet.update(range_name='A1', values=[headers] + all_rows)
+        print("初期化書き込み完了！")
+    else:
+        if all_rows:
+            print(f"{len(all_rows)}件の最新データを追記します...")
+            # ヘッダー行(1行目)の次、つまり2行目に挿入
+            worksheet.insert_rows(all_rows, row=2)
+            print("追記完了！")
+        else:
+            print("更新データがありませんでした")
 
 if __name__ == "__main__":
     update_sheet()
