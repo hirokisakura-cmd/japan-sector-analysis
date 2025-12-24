@@ -110,26 +110,7 @@ def process_data_for_chart(data):
     chart_labels = normalized_df.index.strftime('%Y/%m/%d').tolist()
     chart_datasets = []
     
-    # --- 色のリスト修正 (High Contrast) ---
-    # 白背景で見にくい黄色や薄い色を排除し、濃い色を中心に構成
-    colors = [
-        '#e6194b', # 赤
-        '#3cb44b', # 緑
-        '#9a6324', # 茶色 (黄色の代わり)
-        '#4363d8', # 青
-        '#f58231', # オレンジ
-        '#911eb4', # 紫
-        '#008080', # ティール (シアンの代わり)
-        '#f032e6', # マゼンタ
-        '#800000', # マルーン (ライムの代わり)
-        '#000075', # ネイビー (ピンクの代わり)
-        '#808000', # オリーブ
-        '#000000', # 黒
-        '#dcbeff', # ライラック (少し薄いが識別可能)
-        '#a9a9a9', # ダークグレー
-        '#fffac8', # ベージュ (※削除対象、後述でスキップされるか確認) -> 下記で上書き
-    ]
-    # より確実な視認性の高いパレット (Tableau10 + Dark variants)
+    # --- 色のリスト (High Contrast) ---
     colors = [
         '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
         '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
@@ -165,15 +146,15 @@ def generate_html_content(latest_df, chart_labels, chart_datasets, overheated_to
     chart_id = f"sectorChart_{random.randint(1000, 9999)}"
 
     # --- CSS (インライン) ---
-    style_grid = "display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 30px;"
+    style_grid = "display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;"
     style_card = "padding: 12px; border-radius: 6px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #eee;"
 
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto;">
         <p style="text-align: right; font-size: 0.8rem; color: #666; margin-bottom: 10px;">データ更新日: {last_update_str}</p>
         
-        <!-- パネルエリア見出し (絵文字削除) -->
-        <h3 style="font-size: 1.1rem; border-left: 5px solid #d32f2f; padding-left: 10px; margin-bottom: 15px; color: #333;">業種別トレンド・シグナル一覧</h3>
+        <!-- パネルエリア見出し (装飾なし) -->
+        <h3 style="font-size: 1.1rem; margin-bottom: 15px; color: #333;">業種別トレンド・シグナル一覧</h3>
 
         <!-- パネルエリア -->
         <div style="{style_grid}">
@@ -185,41 +166,65 @@ def generate_html_content(latest_df, chart_labels, chart_datasets, overheated_to
         rsi = float(row['RSI'])
         bb = float(row['BB%B(過熱)'])
         
-        # --- ステータス判定 (絵文字削除) ---
+        # --- ステータス判定 ---
         status_text = "通常"
         status_style = "color: #666; font-size: 0.75rem; background: #f0f0f0; padding: 2px 6px; border-radius: 3px;"
         
         # 過熱判定
         if rsi >= 70 or bb > 1.0:
-            status_text = "過熱" # 絵文字削除
+            status_text = "過熱"
             status_style = "color: #d32f2f; font-weight: bold; font-size: 0.75rem; background: #ffebee; padding: 2px 6px; border-radius: 3px; border: 1px solid #ffcdd2;"
             
         # 割安判定
         elif rsi <= 30 or bb < 0:
-            status_text = "割安" # 絵文字削除
+            status_text = "割安"
             status_style = "color: #1565c0; font-weight: bold; font-size: 0.75rem; background: #e3f2fd; padding: 2px 6px; border-radius: 3px; border: 1px solid #bbdefb;"
 
         change_color = "#d32f2f" if change > 0 else ("#1976d2" if change < 0 else "#333")
         sign = "+" if change > 0 else ""
         
+        # パネルHTML: ラベル追加と詳細数値の追加
         html += f"""
         <div style="{style_card}">
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 5px;">
-                <div style="font-weight: bold; font-size: 0.9rem; color: #333;">{sector}</div>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-end;">
-                <div style="font-size: 1.4rem; font-weight: bold; color: {change_color}; line-height: 1;">
-                    {sign}{change}<span style="font-size: 0.8rem;">%</span>
+            <div style="font-weight: bold; font-size: 0.95rem; color: #333; margin-bottom: 8px;">{sector}</div>
+            
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px;">
+                <div>
+                    <div style="font-size: 0.7rem; color: #888; margin-bottom: 2px;">ETF価格前日比</div>
+                    <div style="font-size: 1.4rem; font-weight: bold; color: {change_color}; line-height: 1;">
+                        {sign}{change}<span style="font-size: 0.8rem;">%</span>
+                    </div>
                 </div>
-                <div style="{status_style}">{status_text}</div>
+                <div style="text-align: right;">
+                    <div style="{status_style}; display: inline-block;">{status_text}</div>
+                </div>
+            </div>
+            
+            <div style="font-size: 0.75rem; color: #666; border-top: 1px solid #f9f9f9; padding-top: 6px; display: flex; justify-content: space-between;">
+                <span>RSI(14): <strong>{rsi:.1f}</strong></span>
+                <span>BB: <strong>{bb:.2f}</strong></span>
             </div>
         </div>
         """
 
+    # パネル下の説明エリア
+    html += """
+        </div>
+        <div style="font-size: 0.8rem; color: #666; background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 40px; border: 1px solid #eee;">
+            <strong>【パネルの見方・判定条件】</strong><br>
+            <ul style="margin: 5px 0 0 20px; padding: 0;">
+                <li><strong>ETF価格前日比</strong>：東証上場のTOPIX-17シリーズETF終値の前日比です。</li>
+                <li><strong>過熱</strong>：RSI(14日)が70以上、またはボリンジャーバンド(20日/2σ)の%Bが1.0(バンド上限)を超えた場合。</li>
+                <li><strong>割安</strong>：RSI(14日)が30以下、またはボリンジャーバンド(20日/2σ)の%Bが0(バンド下限)を下回った場合。</li>
+                <li><strong>BB</strong>：ボリンジャーバンド%B値。1.0以上でバンド上限突破、0以下でバンド下限割れを示唆します。</li>
+            </ul>
+        </div>
+    """
+
     json_labels = json.dumps(chart_labels)
     json_datasets = json.dumps(chart_datasets)
 
-    # 過熱Top3 (絵文字削除)
+    # 過熱Top3
     top3_html = ""
     if overheated_top3:
         top3_html += '<div style="background: #fff3e0; padding: 12px; border-radius: 6px; margin-bottom: 20px; border: 1px solid #ffe0b2;">'
@@ -233,22 +238,26 @@ def generate_html_content(latest_df, chart_labels, chart_datasets, overheated_to
         top3_html += '<div style="background: #f9f9f9; padding: 10px; border-radius: 6px; margin-bottom: 20px; border: 1px solid #eee; color: #666; font-size: 0.9rem;">現在、過熱圏にある業種はありません。</div>'
 
     html += f"""
-        </div>
-        <!-- チャートエリア (絵文字削除) -->
-        <h3 style="font-size: 1.1rem; border-left: 5px solid #333; padding-left: 10px; margin-top: 40px; margin-bottom: 15px; color: #333;">300日パフォーマンス推移チャート (起点=100)</h3>
+        <!-- チャートエリア見出し (装飾なし) -->
+        <h3 style="font-size: 1.1rem; margin-top: 40px; margin-bottom: 15px; color: #333;">300日パフォーマンス推移チャート (起点=100)</h3>
         
         {top3_html}
-
-        <p style="font-size: 0.8rem; color: #666; margin-bottom: 15px;">
-            ※300営業日前を100とした指数チャートです。<br>
-            ※凡例の四角(■)をタップすると、その業種の表示/非表示を切り替えられます。
-        </p>
         
         <!-- Chart.js CDN -->
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         
         <div style="position: relative; width: 100%; height: 500px; border: 1px solid #eee; border-radius: 4px; padding: 5px;">
             <canvas id="{chart_id}"></canvas>
+        </div>
+        
+        <!-- チャート下の説明エリア -->
+        <div style="font-size: 0.8rem; color: #666; background: #f9f9f9; padding: 12px; border-radius: 6px; margin-top: 15px; border: 1px solid #eee;">
+            <strong>【チャートの仕様】</strong><br>
+            <ul style="margin: 5px 0 0 20px; padding: 0;">
+                <li>直近300営業日前の終値を「100」として指数化したパフォーマンス推移です。</li>
+                <li>グラフ上の凡例の四角(■)をタップすると、その業種の表示/非表示を切り替えられます。</li>
+                <li>チャート上の点をタップすると、詳細な日付と指数値が表示されます。</li>
+            </ul>
         </div>
         
         <script>
